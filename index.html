@@ -22150,6 +22150,7 @@ function PX2cmd(line,out){
  case 'call':if(need(1)){var fc=PX2Ffind(a[0]);if(!fc)out('"'+a[0]+'" is not in your friends list.','e');else{PX2Fcall(fc.n);out('Calling '+fc.n+'...','o');}}break;
  case 'answer':PX2Fanswer();break;
  case 'ui':case 'skin':if(need(1)){if(PX2skin(a[0].toLowerCase()))out('Interface style: '+a[0],'o');else out('Styles: '+Object.keys(PX2SK).join(', '),'e');}break;
+ case 'ice':if(!a.length){out('Extra ICE servers: '+(PX2F.cfg.ice.length?JSON.stringify(PX2F.cfg.ice):'none')+'. Use: ice <json array>  or  ice reset (then go offline/online)','o');}else if(a[0]==='reset'){PX2F.cfg.ice=[];PX2Fsave();out('ICE servers reset','o');}else{try{var v=JSON.parse(a.join(' '));if(!Array.isArray(v))throw 0;PX2F.cfg.ice=v;PX2Fsave();out('Saved. Go offline and online again to apply.','o');}catch(e){out('Give a JSON array, e.g. ice [{"urls":"turn:host:3478","username":"u","credential":"p"}]','e');}}break;
  case 'voice':PX2Vopen(PX2.voiceOpen?0:1);out(PX2.voiceOpen?'Voice panel opened.':'Voice panel closed.','o');break;
  case 'party':{var s4=(a.shift()||'create').toLowerCase();
    if(s4==='create'){PX2Pcreate();out('Creating party...','o');}
@@ -22627,10 +22628,16 @@ function PX2uiCss(){
  var st=PX2el('style');st.id='px2css2';st.textContent=css;document.head.appendChild(st);}
 
 /* ---------- friends (peer-to-peer presence through the public PeerJS broker) ---------- */
-var PX2F={cfg:(function(){var c=PX2load(PX2K.fr,{});return {name:c.name||'',on:c.on?1:0,share:c.share===0?0:1,pub:c.pub===0?0:1,av:(typeof c.av==='string'?c.av:''),friends:Array.isArray(c.friends)?c.friends:[],req:Array.isArray(c.req)?c.req:[]};})(),
+var PX2F={cfg:(function(){var c=PX2load(PX2K.fr,{});return {name:c.name||'',on:c.on?1:0,ice:Array.isArray(c.ice)?c.ice:[],share:c.share===0?0:1,pub:c.pub===0?0:1,av:(typeof c.av==='string'?c.av:''),friends:Array.isArray(c.friends)?c.friends:[],req:Array.isArray(c.req)?c.req:[]};})(),
  peer:null,ready:0,on:{},req:[],unread:{},call:null,pr:{},msg:'',res:null,views:[],q:[],loading:0,timer:null};
 PX2F.req=PX2F.cfg.req;
 function PX2Fsave(){PX2store(PX2K.fr,PX2F.cfg);}
+
+/* ICE servers: lots of STUN for NAT hole punching + public TURN relays for networks that block direct links. Override with the console: ice <json array> / ice reset */
+var PX2ICE=[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'},{urls:'stun:stun2.l.google.com:19302'},{urls:'stun:stun3.l.google.com:19302'},{urls:'stun:stun4.l.google.com:19302'},{urls:'stun:stun.cloudflare.com:3478'},{urls:'stun:global.stun.twilio.com:3478'},{urls:'stun:stun.services.mozilla.com:3478'},
+ {urls:['turn:eu-0.turn.peerjs.com:3478','turn:us-0.turn.peerjs.com:3478'],username:'peerjs',credential:'peerjsp'},
+ {urls:['turn:openrelay.metered.ca:80','turn:openrelay.metered.ca:443','turn:openrelay.metered.ca:443?transport=tcp','turns:openrelay.metered.ca:443?transport=tcp'],username:'openrelayproject',credential:'openrelayproject'}];
+function PX2ice(){var c=PX2F.cfg.ice;return {iceServers:(Array.isArray(c)&&c.length)?c.concat(PX2ICE):PX2ICE,iceCandidatePoolSize:4};}
 function PX2Fid(n){return 'dragonx-'+String(n).toLowerCase();}
 function PX2Fvalid(n){return /^[A-Za-z0-9_]{3,16}$/.test(n)&&n.slice(0,2)!=='__';}
 function PX2Ffind(n){var l=String(n).toLowerCase();for(var i=0;i<PX2F.cfg.friends.length;i++)if(PX2F.cfg.friends[i].n.toLowerCase()===l)return PX2F.cfg.friends[i];return null;}
@@ -22643,9 +22650,9 @@ function PX2Fstart(){
  if(PX2F.peer||!PX2F.cfg.name)return;PX2F.msg='Connecting...';PX2Fdirty();
  PX2Fload(function(ok){
   if(!ok){PX2F.msg='Could not reach the presence service (needs internet).';PX2F.cfg.on=0;PX2Fsave();PX2Fdirty();return;}
-  var pe;try{pe=new window.Peer(PX2Fid(PX2F.cfg.name),{debug:0});}catch(e){PX2F.msg='Could not start: '+e.message;PX2F.cfg.on=0;PX2Fsave();PX2Fdirty();return;}
+  var pe;try{pe=new window.Peer(PX2Fid(PX2F.cfg.name),{debug:0,config:PX2ice()});}catch(e){PX2F.msg='Could not start: '+e.message;PX2F.cfg.on=0;PX2Fsave();PX2Fdirty();return;}
   PX2F.peer=pe;
-  pe.on('open',function(){PX2F.ready=1;PX2F.msg='';PX2Fdirty();PX2Fpoll();setTimeout(PX2Ljoin,300);clearInterval(PX2F.timer);PX2F.timer=setInterval(PX2Fpoll,20000);});
+  pe.on('open',function(){PX2F.ready=1;PX2F.msg='';PX2Fdirty();PX2Fpoll();setTimeout(PX2Ljoin,300);clearInterval(PX2F.timer);PX2F.timer=setInterval(PX2Fpoll,30000);});
   pe.on('connection',PX2Fbind);pe.on('call',PX2Fincoming);
   pe.on('disconnected',function(){PX2F.ready=0;try{pe.reconnect();}catch(e){}PX2Fdirty();});
   pe.on('error',function(e){
@@ -22669,7 +22676,7 @@ function PX2Lbcast(){var l=[],k,now=Date.now();
  for(k in PX2L.hc){try{PX2L.hc[k].c.send({t:'list',l:l});}catch(e){}}PX2Fdirty();}
 function PX2Lclaim(){
  if(PX2L.hub||!PX2F.ready||!PX2F.cfg.pub||!window.Peer)return;
- var pe;try{pe=new window.Peer(PX2Lid(),{debug:0});}catch(e){return;}
+ var pe;try{pe=new window.Peer(PX2Lid(),{debug:0,config:PX2ice()});}catch(e){return;}
  PX2L.hub=pe;
  pe.on('open',function(){PX2L.hc={};PX2L.conn=null;PX2Lbcast();clearInterval(PX2L.tm);PX2L.tm=setInterval(PX2Lbcast,20000);});
  pe.on('connection',function(c){
@@ -22684,7 +22691,7 @@ function PX2Ljoin(){
  if(!PX2F.ready||!PX2F.peer||!PX2F.cfg.pub||PX2L.hub||PX2L.conn||PX2L.joining)return;
  PX2L.joining=1;var id=PX2Lid(),c,done=0,t;
  function fail(){if(done)return;done=1;clearTimeout(t);delete PX2F.pr[id];PX2L.joining=0;try{c&&c.close();}catch(e){}PX2L.conn=null;PX2Lclaim();}
- PX2F.pr[id]=fail;t=setTimeout(fail,9000);
+ PX2F.pr[id]=fail;t=setTimeout(fail,22000);
  try{c=PX2F.peer.connect(id,{reliable:true});}catch(e){fail();return;}
  c.on('open',function(){if(done)return;done=1;clearTimeout(t);delete PX2F.pr[id];PX2L.joining=0;PX2L.conn=c;PX2L.last=Date.now();try{c.send({t:'lhi',n:PX2F.cfg.name,s:PX2status()});}catch(e){}});
  c.on('data',function(d){if(!d||d.t!=='list'||!Array.isArray(d.l))return;PX2L.last=Date.now();
@@ -22707,11 +22714,11 @@ function PX2Fbind(c){
   else if(d.t==='msg'){PX2Fgot(d);}
   else if(d.t==='pinv'||d.t==='pjoin'||d.t==='pnew'||d.t==='pmem'||d.t==='pleave'){PX2Pgot(d);}
   else if(d.t==='fa'){var g=PX2Ffind(d.n);if(g&&!g.ok){g.ok=1;PX2Fsave();PX2notify(d.n+' accepted your friend request','on');PX2Fdirty();}}});
- setTimeout(function(){try{c.close();}catch(e){}},8000);}
+ setTimeout(function(){try{c.close();}catch(e){}},20000);}
 function PX2Fprobe(name,extra,cb){
  var id=PX2Fid(name);if(!PX2F.peer||!PX2F.ready){cb(null);return;}
  var done=0,c,t;function fin(r){if(done)return;done=1;clearTimeout(t);delete PX2F.pr[id];try{if(c)c.close();}catch(e){}cb(r);}
- PX2F.pr[id]=fin;t=setTimeout(function(){fin(null);},7000);
+ PX2F.pr[id]=fin;t=setTimeout(function(){fin(null);},22000);
  try{c=PX2F.peer.connect(id,{reliable:true});}catch(e){fin(null);return;}
  c.on('open',function(){try{c.send(PX2Fhello(name));(extra||[]).forEach(function(x){c.send(x);});}catch(e){fin(null);}});
  c.on('data',function(d){if(d&&d.t==='hi'&&typeof d.n==='string'){var rs={n:d.n,s:d.s==='game'?'game':'menu',srv:(PX2Ffind(d.n)?PX2Fsrv(d):'')};PX2Fav(d);if((extra||[]).length)setTimeout(function(){fin(rs);},1200);else fin(rs);}else if(d&&d.t==='fa'&&typeof d.n==='string'){var f=PX2Ffind(d.n);if(f&&!f.ok){f.ok=1;PX2Fsave();PX2Fdirty();}}});
